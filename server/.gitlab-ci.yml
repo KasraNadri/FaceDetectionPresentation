@@ -1,0 +1,59 @@
+stages:
+  - build_dockerize
+  - save_tarfile
+  - deploy
+variables:
+  IMAGE_NAME: "face-realness"
+  SAVE_TARFILE: "true"
+
+include:
+  - project: 'Modernization/templates'
+    file: '/CI_TEMPLATE/Common.yml'
+    ref: 'main'
+
+# START BUILD_DOCKERIZE
+build-dockerize:
+  tags:
+    - docker
+  image: reg.daneshrefah.ir/modernization/docker:drp
+  stage: build_dockerize
+  services:
+    - reg.daneshrefah.ir/modernization/docker:dind
+  before_script:
+    - docker login -u "$CI_REGISTRY_USER" -p "$CI_REGISTRY_PASSWORD" $CI_REGISTRY
+    - mkdir publish
+  script:
+    - docker build -t "$CI_REGISTRY_IMAGE_PREFIX${IMAGE_NAME}:${CI_COMMIT_TAG}" . --no-cache
+    - docker push "$CI_REGISTRY_IMAGE_PREFIX${IMAGE_NAME}:${CI_COMMIT_TAG}"
+  needs: []
+  only:
+    - tags
+  except:
+    - branches
+
+# END BUILD_DOCKERIZE
+
+# CREATE TARFILE
+create_tarfile:
+  extends: .common-create-tarfile
+  stage: save_tarfile
+  needs: ["build-dockerize"]
+# CREATE TARFILE
+# START DEPLOY
+
+deploy:
+  tags:
+    - docker
+  stage: deploy
+  image:
+    name: reg.daneshrefah.ir/modernization/kubectl:1.24.2-modernization
+    entrypoint: [""]
+  script:
+    - kubectl set image deployment/${IMAGE_NAME} ${IMAGE_NAME}=$CI_REGISTRY_IMAGE_PREFIX${IMAGE_NAME}:$CI_COMMIT_TAG -n refano
+  needs: ["build-dockerize"]
+  only:
+    - tags
+  except:
+    - branches
+
+# END DEPLOY
