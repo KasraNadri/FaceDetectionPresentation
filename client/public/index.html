@@ -1,0 +1,147 @@
+<!doctype html>
+<html>
+
+<head>
+    <meta charset="utf-8">
+    <title>Human.js Webcam Test</title>
+    <link rel="stylesheet" href="style.css" />
+    <style>
+        #wrap {
+            position: relative;
+            width: 720px;
+            max-width: 95vw;
+        }
+
+        video,
+        canvas {
+            width: 100%;
+            height: auto;
+            display: block;
+        }
+
+        canvas {
+            position: absolute;
+            left: 0;
+            top: 0;
+            pointer-events: none;
+        }
+    </style>
+</head>
+
+<body>
+
+    <main>
+        <div id="wrap">
+            <video id="video" autoplay playsinline muted></video>
+            <canvas id="canvas"></canvas>
+        </div>
+
+        <div id="result" style="font-size: 24px; margin-top: 20px; color: black;">
+            Waiting...
+        </div>
+
+    </main>
+
+
+    <script src="human.js"></script>
+    <script>
+        (async () => {
+            function canvasToBase64(canvas) {
+                return canvas.toDataURL("image/jpeg", 0.9); // base64
+            }
+
+            let lock = false;
+
+            async function sendFrameToServer() {
+                if (lock) return;
+                lock = true;
+
+                const base64 = canvasToBase64(canvas);
+
+                try {
+                    const response = await fetch("http://localhost:8000/detect-liveness-base64", {
+                        method: "POST",
+                        headers: { "Content-Type": "application/json" },
+                        body: JSON.stringify({ images: [base64] })
+                    });
+
+                    const data = await response.json();
+                    const result = data.results[0];
+
+                    if (result.error) {
+                        document.getElementById("result").innerText = "Error: " + result.error;
+                        return;
+                    }
+
+                    document.getElementById("result").innerHTML =
+                        result.bbox.x === 0 && result.bbox.y === 0 && result.bbox.w === 1 && result.bbox.h === 1
+                        ?  "-"
+                        :`Label: <b>${result.label}</b> | Score: <b>${result.score.toFixed(3)}</b>`;
+                } catch (err) {
+                    document.getElementById("result").innerText = "Server error: " + err;
+                } finally {
+                    lock = false;
+                }
+            }
+
+
+            const video = document.getElementById("video");
+            const canvas = document.getElementById("canvas");
+
+            // --- Human config ---
+            const human = new Human.Human({
+                backend: "webgl",
+                modelBasePath: "/models",
+                debug: false,
+                filter: { enabled: true },
+                face: { enabled: true },
+                body: { enabled: true },
+                hand: { enabled: true }
+            });
+
+            human.draw.options.font = '24px Arial';  // or '32px sans-serif', etc.
+
+            await human.load();
+            if (human.warmup) await human.warmup();
+
+            // --- Start webcam ---
+            const stream = await navigator.mediaDevices.getUserMedia({
+                video: { width: 1600 }
+            });
+            video.srcObject = stream;
+
+            // Wait until video has actual dimensions
+            await new Promise(res => video.onloadedmetadata = res);
+
+            // --- Set canvas size AFTER video metadata loads ---
+            canvas.width = video.videoWidth;
+            canvas.height = video.videoHeight;
+
+            const ctx = canvas.getContext("2d");   // <-- valid now
+            console.log("Canvas context:", ctx);   // should not be null
+
+            // --- Main loop ---
+            async function loop() {
+                const result = await human.detect(video);
+
+                // draw video frame to canvas
+                ctx.drawImage(video, 0, 0, canvas.width, canvas.height);
+
+                // draw detection overlays
+                human.draw.all(canvas, result);
+
+                window.setTimeout(()=> {
+                    requestAnimationFrame(loop);
+                }, 1000 / 30);
+            }
+
+            // Send 1 image per second
+            setInterval(sendFrameToServer, 1000);
+
+            loop();
+        })();
+    </script>
+
+</body>
+
+</html>

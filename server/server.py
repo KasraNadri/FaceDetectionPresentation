@@ -48,9 +48,9 @@ def decode_base64_image(data: str) -> np.ndarray:
 
 # ===== Image Dimension Check =====
 def check_image(image):
-    height, width, channel = image.shape
-    if round(width / height, 2) != 3 / 4:
-        return False
+    # height, width, channel = image.shape
+    # if round(width / height, 2) != 3 / 4:
+    #     return False
     return True
 
 # ===== Request Schema =====
